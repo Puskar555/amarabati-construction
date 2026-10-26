@@ -1,0 +1,79 @@
+name: amarabati-local
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: amarabati
+      POSTGRES_USER: amarabati_owner
+      POSTGRES_PASSWORD: ${PG_OWNER_PASSWORD:?run_scripts_init_env_py_first}
+      APP_DB_PASSWORD: ${PG_APP_PASSWORD:?run_scripts_init_env_py_first}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/00-create-app-role.sh:/docker-entrypoint-initdb.d/00-create-app-role.sh:ro
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./db/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+      - ./db/03-grants.sql:/docker-entrypoint-initdb.d/03-grants.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U amarabati_owner -d amarabati"]
+      interval: 5s
+      timeout: 3s
+      retries: 25
+    networks: [internal]
+  api:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      APP_ENV: local
+      DATABASE_URL: postgresql://amarabati_app:${PG_APP_PASSWORD}@db:5432/amarabati
+      APP_SIGNING_KEY: ${APP_SIGNING_KEY:?run_scripts_init_env_py_first}
+      TOTP_ENCRYPTION_KEY: ${TOTP_ENCRYPTION_KEY:?run_scripts_init_env_py_first}
+      COOKIE_SECURE: "false" # DEVELOPMENT ONLY. Must be true behind HTTPS in production.
+      ALLOWED_ORIGINS: http://localhost:3000,http://localhost:3001,http://localhost:3002
+      LOG_LEVEL: INFO
+    depends_on:
+      db: {condition: service_healthy}
+    networks: [internal]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+  store:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports: ["127.0.0.1:3000:80"]
+    volumes:
+      - ./apps/store:/usr/share/nginx/html:ro
+      - ./apps/shared:/usr/share/nginx/html/shared:ro
+      - ./deploy/nginx/site.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on: [api]
+    networks: [internal]
+    security_opt: [no-new-privileges:true]
+  super:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports: ["127.0.0.1:3001:80"]
+    volumes:
+      - ./apps/super:/usr/share/nginx/html:ro
+      - ./apps/shared:/usr/share/nginx/html/shared:ro
+      - ./deploy/nginx/site.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on: [api]
+    networks: [internal]
+    security_opt: [no-new-privileges:true]
+  regional:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports: ["127.0.0.1:3002:80"]
+    volumes:
+      - ./apps/regional:/usr/share/nginx/html:ro
+      - ./apps/shared:/usr/share/nginx/html/shared:ro
+      - ./deploy/nginx/site.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on: [api]
+    networks: [internal]
+    security_opt: [no-new-privileges:true]
+networks:
+  internal: {}
+volumes:
+  postgres_data: {}

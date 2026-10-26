@@ -1,0 +1,13 @@
+# Move to .github/workflows/checks.yml when integrating a source repository.
+name: Local starter checks
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install -r backend/requirements.txt pytest httpx
+      - run: python -m compileall -q backend/app && pytest -q
+      - run: node --check apps/store/app.js && node --check apps/shared/admin.js
